@@ -1,10 +1,12 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { toggleFavorite } from "@/app/actions";
+import { formatDate } from "@/lib/utils";
 import { toast } from "sonner";
-import { Edit2, Share2, Gamepad2, Star, Heart, MessageSquare } from "lucide-react";
+import { Edit2, Share2, Gamepad2, Star, Heart } from "lucide-react";
 import { 
   SiSteam, 
   SiPlaystation, 
@@ -22,17 +24,12 @@ import { FaXbox } from "react-icons/fa";
 import EditProfileModal from "./edit-profile-modal";
 import ProfileGameGrid from "./profile-game-grid";
 import GameDetailsModal from "./game-details-modal";
-
-interface ProfileViewProps {
-  user: any;
-  dbUser: any;
-  games: any[];
-  isOwner: boolean;
-}
+import type { ProfileViewProps, LibraryGame } from "@/types";
 
 export default function ProfileView({ user, dbUser, games, isOwner }: ProfileViewProps) {
+  const router = useRouter();
   const [isEditing, setIsEditing] = useState(false);
-  const [selectedGame, setSelectedGame] = useState<any | null>(null);
+  const [selectedGame, setSelectedGame] = useState<LibraryGame | null>(null);
 
   const stats = {
     total: games.length,
@@ -42,13 +39,18 @@ export default function ProfileView({ user, dbUser, games, isOwner }: ProfileVie
   };
 
   const favorites = games.filter(g => g.isFavorite).slice(0, 5);
-  const recentReviews = games
-    .filter(g => g.review && g.review.length > 0)
+  
+  // todo: replace with actual reviews from Review model
+  // for now just show recently rated games
+  const recentlyRated = games
+    .filter(g => g.rating && g.rating > 0)
     .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
     .slice(0, 3);
 
   const copyLink = () => {
-    const url = `${window.location.origin}/u/${dbUser.id}`;
+    // use username if available, otherwise fall back to user id
+    const identifier = dbUser?.username || dbUser?.id || user.id;
+    const url = `${window.location.origin}/u/${identifier}`;
     navigator.clipboard.writeText(url);
     toast.success("Profile link copied!");
   };
@@ -62,7 +64,7 @@ export default function ProfileView({ user, dbUser, games, isOwner }: ProfileVie
       toast.error(res.error);
     } else {
       toast.success("Favorites updated");
-      window.location.reload();
+      router.refresh(); // Use Next.js router.refresh() instead of window.location.reload()
     }
   };
 
@@ -115,29 +117,47 @@ export default function ProfileView({ user, dbUser, games, isOwner }: ProfileVie
               </h1>
               {/* Gamertags & Socials */}
               <div className="flex flex-wrap items-center justify-center md:justify-start gap-2 mt-2">
-                {/* Gamertags */}
+                {/* Gamertags - some are clickable, others just show tooltip */}
                 {dbUser?.steamId && (
-                  <div className="p-1.5 bg-[#171a21] rounded text-white hover:scale-110 transition-transform cursor-help" title={`Steam: ${dbUser.steamId}`}>
+                  <a 
+                    href={`https://steamcommunity.com/id/${dbUser.steamId}`} 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    title={`Steam: ${dbUser.steamId}`}
+                    className="p-1.5 bg-[#171a21] rounded text-white hover:scale-110 transition-transform"
+                  >
                     <SiSteam className="w-4 h-4" />
-                  </div>
+                  </a>
                 )}
                 {dbUser?.psnId && (
-                  <div className="p-1.5 bg-[#003087] rounded text-white hover:scale-110 transition-transform cursor-help" title={`PSN: ${dbUser.psnId}`}>
+                  <a 
+                    href={`https://psnprofiles.com/${dbUser.psnId}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title={`PSN: ${dbUser.psnId}`}
+                    className="p-1.5 bg-[#003087] rounded text-white hover:scale-110 transition-transform"
+                  >
                     <SiPlaystation className="w-4 h-4" />
-                  </div>
+                  </a>
                 )}
                 {dbUser?.xboxGamertag && (
-                  <div className="p-1.5 bg-[#107C10] rounded text-white hover:scale-110 transition-transform cursor-help" title={`Xbox: ${dbUser.xboxGamertag}`}>
+                  <a 
+                    href={`https://www.xbox.com/en-US/Profile?gamertag=${encodeURIComponent(dbUser.xboxGamertag)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title={`Xbox: ${dbUser.xboxGamertag}`}
+                    className="p-1.5 bg-[#107C10] rounded text-white hover:scale-110 transition-transform"
+                  >
                     <FaXbox className="w-4 h-4" />
-                  </div>
+                  </a>
                 )}
                 {dbUser?.nintendoFriendCode && (
-                  <div className="p-1.5 bg-[#e60012] rounded text-white hover:scale-110 transition-transform cursor-help" title={`Nintendo: ${dbUser.nintendoFriendCode}`}>
+                  <div className="p-1.5 bg-[#e60012] rounded text-white hover:scale-110 transition-transform cursor-help" title={`Nintendo Friend Code: ${dbUser.nintendoFriendCode}`}>
                     <SiNintendoswitch className="w-4 h-4" />
                   </div>
                 )}
                 {dbUser?.eaId && (
-                  <div className="p-1.5 bg-[#FF4747] rounded text-white hover:scale-110 transition-transform cursor-help" title={`EA: ${dbUser.eaId}`}>
+                  <div className="p-1.5 bg-[#FF4747] rounded text-white hover:scale-110 transition-transform cursor-help" title={`EA ID: ${dbUser.eaId}`}>
                     <SiEa className="w-4 h-4" />
                   </div>
                 )}
@@ -147,9 +167,15 @@ export default function ProfileView({ user, dbUser, games, isOwner }: ProfileVie
                   </div>
                 )}
                 {dbUser?.gogId && (
-                  <div className="p-1.5 bg-[#5c2e91] rounded text-white hover:scale-110 transition-transform cursor-help" title={`GOG: ${dbUser.gogId}`}>
+                  <a 
+                    href={`https://www.gog.com/u/${dbUser.gogId}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title={`GOG: ${dbUser.gogId}`}
+                    className="p-1.5 bg-[#5c2e91] rounded text-white hover:scale-110 transition-transform"
+                  >
                     <SiGogdotcom className="w-4 h-4" />
-                  </div>
+                  </a>
                 )}
 
                 {/* Divider if both exist */}
@@ -272,15 +298,15 @@ export default function ProfileView({ user, dbUser, games, isOwner }: ProfileVie
               )}
             </div>
 
-            {/* Recent Reviews */}
-            {recentReviews.length > 0 && (
+            {/* Recently Rated - todo: replace with actual reviews from Review model */}
+            {recentlyRated.length > 0 && (
               <div className="bg-[#202020] rounded-xl p-6 border border-zinc-800">
                 <h3 className="text-sm font-bold text-zinc-400 uppercase tracking-wider mb-4 flex items-center gap-2">
-                  <MessageSquare className="w-4 h-4 text-blue-500" />
-                  Recent Reviews
+                  <Star className="w-4 h-4 text-yellow-500" />
+                  Recently Rated
                 </h3>
                 <div className="space-y-4">
-                  {recentReviews.map((game) => (
+                  {recentlyRated.map((game) => (
                     <div key={game.id} className="flex gap-4 group cursor-pointer" onClick={() => setSelectedGame(game)}>
                       <div className="relative w-16 h-24 shrink-0 rounded bg-zinc-800 overflow-hidden">
                         {game.coverUrl && (
@@ -293,9 +319,8 @@ export default function ProfileView({ user, dbUser, games, isOwner }: ProfileVie
                           <Star className="w-3 h-3 fill-current" />
                           <span>{game.rating ? game.rating / 20 : 0}</span>
                         </div>
-                        <p className="text-sm text-zinc-400 line-clamp-2 italic">"{game.review}"</p>
                         <p className="text-xs text-zinc-600 mt-1">
-                          {new Date(game.updatedAt).toLocaleDateString()}
+                          {formatDate(game.updatedAt)}
                         </p>
                       </div>
                     </div>

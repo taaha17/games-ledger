@@ -13,25 +13,28 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// This model represents a User in our database
+// ============================================
+// user model
+// ============================================
+// stores user profile data from clerk plus our custom fields
 model User {
-  id        String   @id // This will be the Clerk User ID
+  id        String   @id // clerk user id
   email     String   @unique
-  username  String?  @unique // For public profile URL
+  username  String?  @unique // for public profile url like /u/username
   bio       String?  @db.Text
-  avatarUrl String?
-  headerUrl String?
+  avatarUrl String?  // now stores uploadthing url instead of base64
+  headerUrl String?  // now stores uploadthing url instead of base64
   
-  // Gamertags
-  steamId   String?
-  psnId     String?
-  xboxGamertag String?
+  // gamertags - different gaming platform ids
+  steamId            String?
+  psnId              String?
+  xboxGamertag       String?
   nintendoFriendCode String?
-  eaId      String?
-  ubisoftId String?
-  gogId     String?
+  eaId               String?
+  ubisoftId          String?
+  gogId              String?
   
-  // Socials
+  // socials - just usernames, we build the full url on display
   twitter   String?
   instagram String?
   discord   String?
@@ -40,35 +43,166 @@ model User {
 
   createdAt DateTime @default(now())
   
-  // A user can have many games in their list
-  games     Game[]
+  // relations
+  games         Game[]
+  reviews       Review[]
+  reviewVotes   ReviewVote[]
+  reviewReplies ReviewReply[]
+  activities    Activity[]
+  
+  // follow relations - who this user follows and who follows them
+  following     Follow[] @relation("UserFollowing")
+  followers     Follow[] @relation("UserFollowers")
 }
 
-// This model represents a Game saved by a user
+// ============================================
+// game model
+// ============================================
+// a game in a user's library
 model Game {
-  id        String   @id @default(cuid()) // Unique ID for this entry
+  id        String   @id @default(cuid())
   
-  // Data from IGDB
-  igdbId    Int      // The ID of the game on IGDB
+  // data from igdb
+  igdbId    Int
   name      String
   coverUrl  String?
-  summary   String?  @db.Text // Allow long text
-  genres    String?  // Comma-separated list of genres
-  platforms String?  // Comma-separated list of platforms
+  summary   String?  @db.Text
+  genres    String?  // comma-separated
+  platforms String?  // comma-separated
   
-  // User's tracking data
-  status    String   @default("PLANNING") // PLANNING, PLAYING, COMPLETED, DROPPED
-  rating    Int?     // 1-100
-  review    String?  // Optional text review
-  isFavorite Boolean @default(false)
+  // user's tracking data
+  status     String   @default("PLANNING") // PLANNING, PLAYING, COMPLETED, DROPPED
+  rating     Int?     // 0-100 (displayed as 0-5 stars with 0.5 increments)
+  isFavorite Boolean  @default(false)
   
-  // Relationship to the User
+  // relations
   userId    String
-  user      User     @relation(fields: [userId], references: [id])
-  
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reviews   Review[] // reviews for this game
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  // Ensure a user can't add the same game twice
   @@unique([userId, igdbId])
+  @@index([userId, status])
+  @@index([userId, createdAt])
+  @@index([userId, isFavorite])
+  @@index([userId, rating])
+  @@index([igdbId]) // for finding all reviews of a game
+}
+
+// ============================================
+// review model
+// ============================================
+// user reviews for games - visible to other users
+model Review {
+  id           String   @id @default(cuid())
+  
+  // review content
+  content      String   @db.Text
+  rating       Int      // 0-100 (displayed as 0-5 stars with 0.5 increments)
+  hasSpoilers  Boolean  @default(false)
+  
+  // vote counts (cached for performance)
+  upvotes      Int      @default(0)
+  downvotes    Int      @default(0)
+  
+  // relations
+  gameId       String
+  game         Game     @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  votes        ReviewVote[]
+  replies      ReviewReply[]
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // one review per user per game
+  @@unique([userId, gameId])
+  @@index([gameId, createdAt])
+  @@index([userId])
+}
+
+// ============================================
+// review vote model
+// ============================================
+// tracks who upvoted/downvoted which reviews
+model ReviewVote {
+  id        String   @id @default(cuid())
+  isUpvote  Boolean  // true = upvote, false = downvote
+  
+  reviewId  String
+  review    Review   @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  // one vote per user per review
+  @@unique([userId, reviewId])
+  @@index([reviewId])
+}
+
+// ============================================
+// review reply model
+// ============================================
+// replies to reviews
+model ReviewReply {
+  id        String   @id @default(cuid())
+  content   String   @db.Text
+  
+  reviewId  String
+  review    Review   @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([reviewId, createdAt])
+}
+
+// ============================================
+// follow model
+// ============================================
+// tracks who follows who
+model Follow {
+  id          String   @id @default(cuid())
+  
+  followerId  String   // the user who is following
+  follower    User     @relation("UserFollowing", fields: [followerId], references: [id], onDelete: Cascade)
+  
+  followingId String   // the user being followed
+  following   User     @relation("UserFollowers", fields: [followingId], references: [id], onDelete: Cascade)
+
+  createdAt   DateTime @default(now())
+
+  // can't follow the same person twice
+  @@unique([followerId, followingId])
+  @@index([followerId])
+  @@index([followingId])
+}
+
+// ============================================
+// activity model
+// ============================================
+// logs user actions for the activity feed
+model Activity {
+  id        String   @id @default(cuid())
+  
+  // activity type: ADDED_GAME, COMPLETED_GAME, REVIEWED_GAME, FOLLOWED_USER, etc
+  type      String
+  
+  // metadata stored as json - contains relevant ids and data
+  // e.g. { gameId: "xxx", gameName: "Elden Ring", status: "COMPLETED" }
+  metadata  String   @db.Text
+  
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
 }

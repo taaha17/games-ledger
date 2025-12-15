@@ -2,20 +2,20 @@
 
 import { useState } from "react";
 import Image from "next/image";
+import { Grid2X2, Grid3X3, LayoutGrid } from "lucide-react";
 import GameDetailsModal from "./game-details-modal";
+import type { LibraryGame, SortOption, GameStatus } from "@/types";
 
 interface ProfileGameGridProps {
-  games: any[];
+  games: LibraryGame[];
 }
-
-type SortOption = "date" | "name" | "rating";
 
 export default function ProfileGameGrid({ games }: ProfileGameGridProps) {
   const [sortBy, setSortBy] = useState<SortOption>("date");
-  const [selectedGame, setSelectedGame] = useState<any | null>(null);
+  const [selectedGame, setSelectedGame] = useState<LibraryGame | null>(null);
   const [cardSize, setCardSize] = useState(1); // 0: Small, 1: Medium, 2: Large
 
-  const getSortedGames = (gamesList: any[]) => {
+  const getSortedGames = (gamesList: LibraryGame[]): LibraryGame[] => {
     return [...gamesList].sort((a, b) => {
       if (sortBy === "name") {
         return a.name.localeCompare(b.name);
@@ -36,14 +36,14 @@ export default function ProfileGameGrid({ games }: ProfileGameGridProps) {
     }
   };
 
-  const groupedGames = {
+  const groupedGames: Record<GameStatus, LibraryGame[]> = {
     PLAYING: getSortedGames(games.filter((g) => g.status === "PLAYING")),
     COMPLETED: getSortedGames(games.filter((g) => g.status === "COMPLETED")),
     PLANNING: getSortedGames(games.filter((g) => g.status === "PLANNING")),
     DROPPED: getSortedGames(games.filter((g) => g.status === "DROPPED")),
   };
 
-  const sections = [
+  const sections: Array<{ id: GameStatus; title: string; icon: string }> = [
     { id: "PLAYING", title: "Currently Playing", icon: "🎮" },
     { id: "COMPLETED", title: "Completed", icon: "🏆" },
     { id: "PLANNING", title: "Plan to Play", icon: "📅" },
@@ -143,12 +143,6 @@ export default function ProfileGameGrid({ games }: ProfileGameGridProps) {
                         <h3 className="font-bold text-sm leading-tight line-clamp-2 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
                           {game.name}
                         </h3>
-                        
-                        {game.review && (
-                          <p className="text-xs text-gray-500 dark:text-gray-400 line-clamp-1 italic">
-                            "{game.review}"
-                          </p>
-                        )}
                       </div>
                     )}
                   </div>

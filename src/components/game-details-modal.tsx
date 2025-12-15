@@ -1,41 +1,58 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { addToLibrary, removeFromLibrary, getGameDetailsAction, toggleFavorite } from "@/app/actions";
 import { useAuth } from "@clerk/nextjs";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Calendar, Star, Users, Building2, Gamepad2, Clock, Image as ImageIcon, Heart } from "lucide-react";
+import type { ProcessedIGDBGame, LibraryGame, GameStatus, TabOption, ModalStep } from "@/types";
 
 interface GameDetailsModalProps {
-  game: any;
+  game: ProcessedIGDBGame | LibraryGame;
   onClose: () => void;
 }
 
 export default function GameDetailsModal({ game: initialGame, onClose }: GameDetailsModalProps) {
+  const router = useRouter();
   const { isSignedIn, userId } = useAuth();
-  const [game, setGame] = useState(initialGame);
-  const [fullDetails, setFullDetails] = useState<any>(null);
-  const [activeTab, setActiveTab] = useState<"overview" | "media" | "similar">("overview");
-  const [step, setStep] = useState<"details" | "form">("details");
+  const [game, setGame] = useState<ProcessedIGDBGame | LibraryGame>(initialGame);
+  const [fullDetails, setFullDetails] = useState<ProcessedIGDBGame | null>(null);
+  const [activeTab, setActiveTab] = useState<TabOption>("overview");
+  const [step, setStep] = useState<ModalStep>("details");
   const [loading, setLoading] = useState(false);
   const [removing, setRemoving] = useState(false);
 
+  // Type guards for checking game type
+  const isLibraryGameType = (g: ProcessedIGDBGame | LibraryGame): g is LibraryGame => {
+    return typeof g.id === 'string' && 'userId' in g;
+  };
+
   // Determine if we are editing an existing library entry
   // We only consider it a library game if it belongs to the current user
-  const isOwner = userId && game.userId === userId;
-  const isLibraryGame = Boolean(game.status) && isOwner;
+  const gameUserId = isLibraryGameType(game) ? game.userId : null;
+  const isOwner = userId && gameUserId === userId;
+  const isLibraryGame = isLibraryGameType(game) && Boolean(game.status) && isOwner;
 
   // Form State - only pre-fill if it's our game
-  const [status, setStatus] = useState(isOwner ? (game.status || "PLANNING") : "PLANNING");
-  const [rating, setRating] = useState(isOwner ? (game.rating || 0) : 0);
-  const [review, setReview] = useState(isOwner ? (game.review || "") : "");
-  const [isFavorite, setIsFavorite] = useState(isOwner ? (game.isFavorite || false) : false);
+  const [status, setStatus] = useState<GameStatus>(
+    isOwner && isLibraryGameType(game) ? (game.status || "PLANNING") : "PLANNING"
+  );
+  const [rating, setRating] = useState(
+    isOwner && isLibraryGameType(game) ? (game.rating || 0) : 0
+  );
+  // reviews are now in a separate model, this is just for the inline review input
+  // todo: replace this with proper review system
+  const [review, setReview] = useState("");
+  const [isFavorite, setIsFavorite] = useState(
+    isOwner && isLibraryGameType(game) ? (game.isFavorite || false) : false
+  );
 
   useEffect(() => {
     const fetchDetails = async () => {
-      const igdbId = game.igdbId || game.id;
+      const igdbId = isLibraryGameType(game) ? game.igdbId : game.id;
       if (typeof igdbId === 'number') {
         const details = await getGameDetailsAction(igdbId);
         if (details) {
@@ -59,10 +76,6 @@ export default function GameDetailsModal({ game: initialGame, onClose }: GameDet
       review: status === "COMPLETED" || status === "DROPPED" || status === "PLAYING" ? review : undefined,
     });
     
-    // If favorite status changed, we need to toggle it separately since addToLibrary doesn't handle it yet
-    // Or we can update addToLibrary. For now let's just call toggle if needed.
-    // Actually, let's just rely on the toggle button in the UI for favorites.
-    
     setLoading(false);
 
     if (result.error) {
@@ -70,11 +83,12 @@ export default function GameDetailsModal({ game: initialGame, onClose }: GameDet
     } else {
       toast.success(isLibraryGame ? "Game updated!" : "Added to library!");
       onClose();
+      router.refresh();
     }
   };
 
   const handleToggleFavorite = async () => {
-    if (!isLibraryGame) return;
+    if (!isLibraryGame || !isLibraryGameType(game)) return;
     const res = await toggleFavorite(game.id);
     if (res.error) {
       toast.error(res.error);
@@ -86,6 +100,7 @@ export default function GameDetailsModal({ game: initialGame, onClose }: GameDet
 
   const handleRemove = async () => {
     if (!confirm("Are you sure you want to remove this game from your library?")) return;
+    if (!isLibraryGameType(game)) return;
     
     setRemoving(true);
     const result = await removeFromLibrary(game.id);
@@ -96,7 +111,7 @@ export default function GameDetailsModal({ game: initialGame, onClose }: GameDet
     } else {
       toast.success("Game removed from library");
       onClose();
-      window.location.reload();
+      router.refresh(); // Use Next.js router.refresh() instead of window.location.reload()
     }
   };
 
@@ -116,6 +131,9 @@ export default function GameDetailsModal({ game: initialGame, onClose }: GameDet
   };
 
   const displayGame = fullDetails || game;
+  
+  // Helper to get IGDB-specific properties (only available on ProcessedIGDBGame or fullDetails)
+  const getIGDBDetails = () => fullDetails;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
@@ -125,7 +143,7 @@ export default function GameDetailsModal({ game: initialGame, onClose }: GameDet
         <div className="relative h-64 sm:h-80 w-full bg-zinc-900 shrink-0">
           {displayGame.coverUrl ? (
             <Image
-              src={displayGame.screenshots?.[0]?.url?.replace("t_screenshot_med", "t_screenshot_huge") || displayGame.coverUrl.replace("t_cover_big", "t_screenshot_huge")}
+              src={('screenshots' in displayGame && displayGame.screenshots?.[0]?.url?.replace("t_screenshot_med", "t_screenshot_huge")) || displayGame.coverUrl.replace("t_cover_big", "t_screenshot_huge")}
               alt={displayGame.name}
               fill
               className="object-cover opacity-40"
@@ -148,19 +166,19 @@ export default function GameDetailsModal({ game: initialGame, onClose }: GameDet
                   {displayGame.name}
                 </h2>
                 <div className="flex flex-wrap items-center gap-4 mt-2 text-sm font-medium text-zinc-700 dark:text-zinc-300">
-                  {displayGame.first_release_date && (
+                  {'first_release_date' in displayGame && displayGame.first_release_date && (
                     <span className="flex items-center gap-1 bg-black/10 dark:bg-white/10 px-2 py-1 rounded">
                       <Calendar className="w-4 h-4" />
                       {new Date(displayGame.first_release_date * 1000).getFullYear()}
                     </span>
                   )}
-                  {displayGame.aggregated_rating && (
+                  {'aggregated_rating' in displayGame && displayGame.aggregated_rating && (
                     <span className="flex items-center gap-1 bg-black/10 dark:bg-white/10 px-2 py-1 rounded text-yellow-600 dark:text-yellow-400">
                       <Star className="w-4 h-4 fill-current" />
                       {Math.round(displayGame.aggregated_rating)} Critic
                     </span>
                   )}
-                  {displayGame.rating && (
+                  {'rating' in displayGame && displayGame.rating && typeof displayGame.rating === 'number' && !('userId' in displayGame) && (
                     <span className="flex items-center gap-1 bg-black/10 dark:bg-white/10 px-2 py-1 rounded text-blue-600 dark:text-blue-400">
                       <Users className="w-4 h-4" />
                       {Math.round(displayGame.rating)} User
@@ -227,11 +245,11 @@ export default function GameDetailsModal({ game: initialGame, onClose }: GameDet
                             </p>
                           </div>
                           
-                          {displayGame.involved_companies && (
+                          {'involved_companies' in displayGame && displayGame.involved_companies && (
                             <div>
                               <h3 className="text-sm font-semibold text-zinc-500 mb-2 uppercase tracking-wider">Developers</h3>
                               <div className="flex flex-wrap gap-2">
-                                {displayGame.involved_companies.map((c: any, i: number) => (
+                                {displayGame.involved_companies.map((c, i: number) => (
                                   <span key={i} className="flex items-center gap-2 text-zinc-800 dark:text-zinc-200 bg-zinc-100 dark:bg-zinc-800 px-3 py-1.5 rounded-md text-sm">
                                     <Building2 className="w-4 h-4" />
                                     {c.company.name}
@@ -241,20 +259,17 @@ export default function GameDetailsModal({ game: initialGame, onClose }: GameDet
                             </div>
                           )}
 
-                          {/* Show other user's review if viewing their profile */}
-                          {!isOwner && game.review && (
+                          {/* show rating if viewing someone else's game */}
+                          {!isOwner && 'rating' in game && game.rating && (
                             <div className="bg-zinc-50 dark:bg-zinc-800/50 p-4 rounded-xl border border-zinc-100 dark:border-zinc-800">
                               <h3 className="text-sm font-semibold text-zinc-500 mb-2 uppercase tracking-wider flex items-center gap-2">
                                 <Users className="w-4 h-4" />
-                                User Review
+                                User Rating
                               </h3>
-                              <p className="text-zinc-700 dark:text-zinc-300 italic">"{game.review}"</p>
-                              {game.rating && (
-                                <div className="mt-2 flex items-center gap-1 text-yellow-500">
-                                  <Star className="w-4 h-4 fill-current" />
-                                  <span className="text-sm font-medium">{game.rating / 20}/5</span>
-                                </div>
-                              )}
+                              <div className="flex items-center gap-1 text-yellow-500">
+                                <Star className="w-4 h-4 fill-current" />
+                                <span className="text-sm font-medium">{game.rating / 20}/5</span>
+                              </div>
                             </div>
                           )}
                         </div>
@@ -294,14 +309,16 @@ export default function GameDetailsModal({ game: initialGame, onClose }: GameDet
                       exit={{ opacity: 0, y: -10 }}
                       className="grid grid-cols-1 sm:grid-cols-2 gap-4"
                     >
-                      {displayGame.screenshots?.map((shot: any, i: number) => (
+                      {'screenshots' in displayGame && displayGame.screenshots?.map((shot, i: number) => (
                         <div key={i} className="relative aspect-video rounded-lg overflow-hidden bg-zinc-100 dark:bg-zinc-800 group">
-                          <Image
-                            src={shot.url}
-                            alt="Screenshot"
-                            fill
-                            className="object-cover transition-transform duration-500 group-hover:scale-105"
-                          />
+                          {shot.url && (
+                            <Image
+                              src={shot.url}
+                              alt="Screenshot"
+                              fill
+                              className="object-cover transition-transform duration-500 group-hover:scale-105"
+                            />
+                          )}
                         </div>
                       )) || (
                         <div className="col-span-full py-12 text-center text-zinc-500 flex flex-col items-center gap-2">
@@ -320,7 +337,7 @@ export default function GameDetailsModal({ game: initialGame, onClose }: GameDet
                       exit={{ opacity: 0, y: -10 }}
                       className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4"
                     >
-                      {displayGame.similar_games?.map((sim: any) => (
+                      {'similar_games' in displayGame && displayGame.similar_games?.map((sim) => (
                         <div 
                           key={sim.id} 
                           onClick={() => {
@@ -381,12 +398,12 @@ export default function GameDetailsModal({ game: initialGame, onClose }: GameDet
                 <div className="space-y-3">
                   <label className="block text-sm font-medium text-zinc-500 uppercase tracking-wider">Status</label>
                   <div className="grid grid-cols-2 gap-3">
-                    {[
-                      { id: "PLANNING", label: "Plan to Play", icon: "📅" },
-                      { id: "PLAYING", label: "Playing", icon: "🎮" },
-                      { id: "COMPLETED", label: "Completed", icon: "🏆" },
-                      { id: "DROPPED", label: "Dropped", icon: "💀" },
-                    ].map((option) => (
+                    {([
+                      { id: "PLANNING" as GameStatus, label: "Plan to Play", icon: "📅" },
+                      { id: "PLAYING" as GameStatus, label: "Playing", icon: "🎮" },
+                      { id: "COMPLETED" as GameStatus, label: "Completed", icon: "🏆" },
+                      { id: "DROPPED" as GameStatus, label: "Dropped", icon: "💀" },
+                    ]).map((option) => (
                       <button
                         key={option.id}
                         onClick={() => setStatus(option.id)}

@@ -19,7 +19,13 @@ export default function UserMenu({ dbUser }: UserMenuProps) {
   const { user } = useUser();
   const { signOut } = useClerk();
   const [isOpen, setIsOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  // Prevent hydration mismatch by only rendering after mount
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // Close menu when clicking outside
   useEffect(() => {
@@ -32,7 +38,18 @@ export default function UserMenu({ dbUser }: UserMenuProps) {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  if (!user) return null;
+  // Return consistent placeholder on server and initial client render
+  if (!mounted || !user) {
+    return (
+      <div className="flex items-center gap-3 p-1.5 pr-3">
+        <div className="w-10 h-10 rounded-full bg-zinc-200 dark:bg-zinc-700 animate-pulse" />
+        <div className="hidden sm:block">
+          <div className="h-3 w-20 bg-zinc-200 dark:bg-zinc-700 rounded animate-pulse" />
+          <div className="h-2 w-16 bg-zinc-200 dark:bg-zinc-700 rounded animate-pulse mt-1" />
+        </div>
+      </div>
+    );
+  }
 
   const avatarUrl = dbUser?.avatarUrl || user.imageUrl;
 
